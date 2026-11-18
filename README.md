@@ -485,6 +485,25 @@ Do it in the folder that contains `start_app.bat`.
 3. **USB camera not listed**: close programs that use it (Teams, Zoom, Camera app), plug it in again,
    click **Detect cameras**.
 
+### A Basler camera is listed, but ticking "Use" does not accept it / "No accepted camera."
+
+Versions 1.0.0 and 1.0.1 only worked with newer Basler cameras (e.g. ace USB 3.0). Older models
+(e.g. ace GigE "classic", Scout, Pilot) use other parameter names. Update to the newest version. If the
+problem remains, report it with the camera model and the log file (see
+[The application closes with an error](#the-application-closes-with-an-error)).
+
+### A .pfs file is not loaded ("could not be loaded")
+
+A `.pfs` file only fits the camera model it was made with. The example files were made for a
+Basler acA2040-120um (USB 3.0). Make your own file: close MultiCam Recorder, open **pylon Viewer**,
+open your camera, set it up, then **Camera > Save Features...**, and load that file in MultiCam Recorder.
+
+### GigE (network) Basler cameras
+
+GigE cameras connect through a network port instead of USB. First make them work in **pylon Viewer**
+(the pylon IP Configurator sets the camera's IP address; use a dedicated network card with jumbo frames
+enabled for high frame rates). Then close pylon Viewer and click **Detect cameras**.
+
 ### The image is black or too dark
 
 - Remove the lens cap; check the lighting.
@@ -548,7 +567,7 @@ The exact ranges depend on the camera model; the parameter window shows the rang
 | Setting | What it does | Trade-off |
 |---|---|---|
 | **Exposure time** (µs) | How long the sensor collects light for each frame | Longer = brighter, but more motion blur. Must be shorter than the time between frames (1,000,000 / fps µs). |
-| **Gain** (dB) | Amplifies the signal | Higher = brighter, but more noise |
+| **Gain** (dB, or "raw" camera units on some older cameras) | Amplifies the signal | Higher = brighter, but more noise |
 | **Frame rate** (fps) | Frames per second | Higher = smoother, but more data and larger files |
 | **Binning** (x) | Combines neighboring pixels (e.g. 2 = 2x2 pixels become 1) | Brighter, less data, but lower resolution |
 | **Width / Height** (px) | Size of the image | Smaller = less data, but less of the scene is visible |
