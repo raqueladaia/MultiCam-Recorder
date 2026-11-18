@@ -14,6 +14,7 @@ The version is shown in the title bar of the program and saved in every metadata
   is not copied between cameras that use different units for it.
 - Basler cameras that do not report their frame rate can record: the frame rate is measured at the
   start of the recording, as for USB cameras.
+- New preview layout 2x1 (two cameras one above the other), useful for wide images.
 - Metadata: the gain unit ("raw" on older cameras) and the camera's own parameter names are saved.
 - Running from the source code now also saves the output in the folder `logs` (as the ready-to-use program does).
 - Clearer messages: unexpected errors open an error dialog (instead of failing silently), the camera

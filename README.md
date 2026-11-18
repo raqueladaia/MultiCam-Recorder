@@ -13,7 +13,7 @@ the ready-to-use program, extract it, and double-click it.
 **What it does:**
 - Finds all connected Basler and USB cameras and shows clearly which is which
 - Lets you give each camera a nickname (e.g. `box1`)
-- Shows all cameras at the same time (layouts 1x1, 1x2, 2x2, 2x3 or 3x2); you choose which camera goes where
+- Shows all cameras at the same time (layouts 1x1, 1x2, 2x1, 2x2, 2x3 or 3x2); you choose which camera goes where
 - Loads a Basler configuration file (`.pfs`) into each Basler camera: the same file for all, or one per camera
 - Lets you adjust Basler camera settings with sliders, shows the change live, and warns you when a change
   lowers image quality or makes dropped frames more likely
@@ -270,7 +270,7 @@ folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File
    The example files are described in [Example settings files (LUPE)](#example-settings-files-lupe).
 4. **(Optional) Give nicknames:** click **Set...** next to a camera and type a name such as `box1`.
    The nickname is used in the video file names and is remembered on this computer.
-5. **Check the image:** click **Start preview** (right side). Choose a layout (1x1, 1x2, 2x2, 2x3, 3x2)
+5. **Check the image:** click **Start preview** (right side). Choose a layout (1x1, 1x2, 2x1, 2x2, 2x3, 3x2)
    and, above each image, which camera is shown there. Adjust the camera position, focus and light.
 6. **(Optional) Adjust a Basler camera:** click **Parameters...**. Move the sliders: the preview changes
    immediately. Read the orange/red warnings, then click **Apply** to keep the changes.
@@ -337,7 +337,7 @@ folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File
 ### Preview (right side)
 
 - **Start preview** / **Stop preview** shows all accepted cameras at the same time.
-- Choose the **layout** (rows x columns): `1x1`, `1x2`, `2x2`, `2x3` or `3x2`. Layouts with fewer
+- Choose the **layout** (rows x columns): `1x1`, `1x2`, `2x1`, `2x2`, `2x3` or `3x2`. Layouts with fewer
   positions than accepted cameras are disabled, so that every camera is always visible
   (e.g. `1x1` can be chosen when one camera is accepted).
 - Choose **which camera goes in which position** with the drop-down above each position

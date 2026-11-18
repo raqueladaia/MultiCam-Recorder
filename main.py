@@ -10,7 +10,7 @@ Features:
 - Detect all connected Basler and USB cameras, give them nicknames
 - Load the Basler configuration from a .pfs file
 - Change Basler parameters with sliders (shown live), with warnings about quality and dropped frames
-- Simultaneous live preview of all cameras (1x2, 2x2 or 2x3) in the main window
+- Simultaneous live preview of all cameras (1x1, 1x2, 2x1, 2x2, 2x3 or 3x2) in the main window
 - Start all cameras together or in groups, by button or at a given time
 - Name videos from an experiment Excel file (round, camera, animals)
 - Save and reload "Recording settings" and "Experiment settings"

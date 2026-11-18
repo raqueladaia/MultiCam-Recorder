@@ -15,7 +15,7 @@ Left side (tabs):
 - Buttons to save / load the "Recording settings".
 - Status log.
 
-Right side: live preview of all accepted cameras (1x1, 1x2, 2x2, 2x3 or 3x2).
+Right side: live preview of all accepted cameras (1x1, 1x2, 2x1, 2x2, 2x3 or 3x2).
 
 Threads: each camera has a CameraWorker thread (preview or recording). This
 window only reads the newest frames and handles the workers' messages in
