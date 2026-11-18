@@ -40,6 +40,7 @@ class CameraEntry:
     model: str
     nickname: str = ""        # Empty when the user has not given one
     accessible: bool = True   # False when another program has the camera open
+    interface: str = ""        # Basler only: 'USB3', 'GigE', ...
 
     @property
     def key(self) -> str:
@@ -71,7 +72,8 @@ def detect_all_cameras(open_usb_indexes=()) -> List[CameraEntry]:
     entries = []
 
     for cam in list_basler_cameras():
-        entry = CameraEntry("Basler", cam['serial'], cam['model'], accessible=cam['accessible'])
+        entry = CameraEntry("Basler", cam['serial'], cam['model'], accessible=cam['accessible'],
+                            interface=cam['interface'])
         entry.nickname = nicknames.get(entry.key, "")
         # Use the name stored in the camera if no nickname was saved and it is valid.
         if not entry.nickname and _NICKNAME_PATTERN.match(cam['user_defined_name']):

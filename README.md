@@ -13,7 +13,7 @@ the ready-to-use program, extract it, and double-click it.
 **What it does:**
 - Finds all connected Basler and USB cameras and shows clearly which is which
 - Lets you give each camera a nickname (e.g. `box1`)
-- Shows all cameras at the same time (layouts 1x1, 1x2, 2x2, 2x3 or 3x2); you choose which camera goes where
+- Shows all cameras at the same time (layouts 1x1, 1x2, 2x1, 2x2, 2x3 or 3x2); you choose which camera goes where
 - Loads a Basler configuration file (`.pfs`) into each Basler camera: the same file for all, or one per camera
 - Lets you adjust Basler camera settings with sliders, shows the change live, and warns you when a change
   lowers image quality or makes dropped frames more likely
@@ -248,7 +248,7 @@ In the folder of the program (next to `MultiCamRecorder.exe`, or next to `main.p
 |---|---|
 | `config` | Camera nicknames of this computer (`camera_nicknames.json`) |
 | `saved_settings` | Default place for saved recording and experiment settings |
-| `logs` | Ready-to-use program only: one text file per session with everything the program reported. Useful when reporting a problem. |
+| `logs` | One text file per session with everything the program reported (from the source code, the same text is also shown in the black window). Useful when reporting a problem. |
 
 If the program folder cannot be written (e.g. the program was put in `C:\Program Files`), these
 folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File Explorer address bar).
@@ -270,7 +270,7 @@ folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File
    The example files are described in [Example settings files (LUPE)](#example-settings-files-lupe).
 4. **(Optional) Give nicknames:** click **Set...** next to a camera and type a name such as `box1`.
    The nickname is used in the video file names and is remembered on this computer.
-5. **Check the image:** click **Start preview** (right side). Choose a layout (1x1, 1x2, 2x2, 2x3, 3x2)
+5. **Check the image:** click **Start preview** (right side). Choose a layout (1x1, 1x2, 2x1, 2x2, 2x3, 3x2)
    and, above each image, which camera is shown there. Adjust the camera position, focus and light.
 6. **(Optional) Adjust a Basler camera:** click **Parameters...**. Move the sliders: the preview changes
    immediately. Read the orange/red warnings, then click **Apply** to keep the changes.
@@ -337,7 +337,7 @@ folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File
 ### Preview (right side)
 
 - **Start preview** / **Stop preview** shows all accepted cameras at the same time.
-- Choose the **layout** (rows x columns): `1x1`, `1x2`, `2x2`, `2x3` or `3x2`. Layouts with fewer
+- Choose the **layout** (rows x columns): `1x1`, `1x2`, `2x1`, `2x2`, `2x3` or `3x2`. Layouts with fewer
   positions than accepted cameras are disabled, so that every camera is always visible
   (e.g. `1x1` can be chosen when one camera is accepted).
 - Choose **which camera goes in which position** with the drop-down above each position
@@ -485,6 +485,26 @@ Do it in the folder that contains `start_app.bat`.
 3. **USB camera not listed**: close programs that use it (Teams, Zoom, Camera app), plug it in again,
    click **Detect cameras**.
 
+### A Basler camera is listed, but ticking "Use" does not accept it / "No accepted camera."
+
+Versions 1.0.0 and 1.0.1 only worked with newer Basler cameras (e.g. ace USB 3.0). Older models
+(e.g. ace GigE "classic", Scout, Pilot) use other parameter names, supported since version 1.0.2.
+Update to the newest version. If the
+problem remains, report it with the camera model and the log file (see
+[The application closes with an error](#the-application-closes-with-an-error)).
+
+### A .pfs file is not loaded ("could not be loaded")
+
+A `.pfs` file only fits the camera model it was made with. The example files were made for a
+Basler acA2040-120um (USB 3.0). Make your own file: close MultiCam Recorder, open **pylon Viewer**,
+open your camera, set it up, then **Camera > Save Features...**, and load that file in MultiCam Recorder.
+
+### GigE (network) Basler cameras
+
+GigE cameras connect through a network port instead of USB. First make them work in **pylon Viewer**
+(the pylon IP Configurator sets the camera's IP address; use a dedicated network card with jumbo frames
+enabled for high frame rates). Then close pylon Viewer and click **Detect cameras**.
+
 ### The image is black or too dark
 
 - Remove the lens cap; check the lighting.
@@ -509,8 +529,7 @@ recording, that video cannot be opened.
 
 ### The application closes with an error
 
-Read the last lines of the Status log, and of the newest file in the folder `logs` (ready-to-use
-program) or of the black window (source code). Close the application, unplug and reconnect the
+Read the last lines of the Status log, and of the newest file in the folder `logs`. Close the application, unplug and reconnect the
 cameras, and start it again. If the problem persists, report it with: the exact error message, the
 log file, what you were doing, the program version (shown in the window title), Windows version,
 camera model(s), and a screenshot.
@@ -548,7 +567,7 @@ The exact ranges depend on the camera model; the parameter window shows the rang
 | Setting | What it does | Trade-off |
 |---|---|---|
 | **Exposure time** (µs) | How long the sensor collects light for each frame | Longer = brighter, but more motion blur. Must be shorter than the time between frames (1,000,000 / fps µs). |
-| **Gain** (dB) | Amplifies the signal | Higher = brighter, but more noise |
+| **Gain** (dB, or "raw" camera units on some older cameras) | Amplifies the signal | Higher = brighter, but more noise |
 | **Frame rate** (fps) | Frames per second | Higher = smoother, but more data and larger files |
 | **Binning** (x) | Combines neighboring pixels (e.g. 2 = 2x2 pixels become 1) | Brighter, less data, but lower resolution |
 | **Width / Height** (px) | Size of the image | Smaller = less data, but less of the scene is visible |

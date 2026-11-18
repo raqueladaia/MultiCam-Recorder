@@ -26,9 +26,13 @@ from ..utils.helpers import format_duration
 
 
 # USB camera drivers do not report a reliable frame rate (e.g. a Logitech C920
-# reported 0 or 30 fps while delivering 8-24 fps). It is therefore measured over
-# the first seconds of each recording; these frames are kept and written too.
+# reported 0 or 30 fps while delivering 8-24 fps), and some Basler models do not
+# report it at all. It is then measured over the first seconds of each recording;
+# these frames are kept and written too.
 USB_RATE_MEASUREMENT_S = 2.0
+
+# Older (GigE Vision 1.x) Basler cameras number their frames 1...65535 and then start again at 1.
+GIGE_BLOCK_ID_MAX = 65535
 
 
 class _VideoFile:
@@ -156,11 +160,14 @@ class CameraWorker:
         resulting_fps = camera.resulting_frame_rate()
         # The frame rate written in the file must be the rate the camera really
         # delivers, so that the video plays at real speed.
-        if camera.kind == "Basler":
-            if not resulting_fps:
-                raise RuntimeError("the camera does not report its frame rate; the video file cannot be created.")
+        if camera.kind == "Basler" and resulting_fps:
             fps_in_file = round(resulting_fps, 3)
             fps_source = "ResultingFrameRate reported by the Basler camera"
+        elif camera.kind == "Basler":
+            # Some Basler models do not report the frame rate they deliver: measure it like for USB cameras.
+            fps_in_file = None
+            fps_source = (f"measured over the first {USB_RATE_MEASUREMENT_S:g} s of the recording "
+                          "(this Basler camera does not report its frame rate)")
         else:
             fps_in_file = None  # Measured from the first frames, see USB_RATE_MEASUREMENT_S
             fps_source = (f"measured over the first {USB_RATE_MEASUREMENT_S:g} s of the recording "
@@ -190,6 +197,10 @@ class CameraWorker:
                 if block_id is not None:
                     if last_block_id is not None and block_id > last_block_id + 1:
                         frames_dropped += block_id - last_block_id - 1
+                    elif (last_block_id is not None and block_id < last_block_id
+                          and last_block_id > GIGE_BLOCK_ID_MAX - 1000 and block_id < 1000):
+                        # Older GigE cameras count 1...65535, then start again at 1.
+                        frames_dropped += (GIGE_BLOCK_ID_MAX - last_block_id) + (block_id - 1)
                     last_block_id = block_id
 
                 if frame is None:
@@ -280,6 +291,9 @@ class CameraWorker:
                 stopped_by_user=stopped_by_user,
                 error=error,
                 context=job.context,
+                camera_units=camera.units() if camera.kind == "Basler" else None,
+                camera_parameter_names=({name: camera_name for name, camera_name in camera.parameter_names().items()
+                                         if name != camera_name} if camera.kind == "Basler" else None),
             )
             try:
                 save_metadata(metadata, job.metadata_path)

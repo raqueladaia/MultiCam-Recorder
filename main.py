@@ -10,7 +10,7 @@ Features:
 - Detect all connected Basler and USB cameras, give them nicknames
 - Load the Basler configuration from a .pfs file
 - Change Basler parameters with sliders (shown live), with warnings about quality and dropped frames
-- Simultaneous live preview of all cameras (1x2, 2x2 or 2x3) in the main window
+- Simultaneous live preview of all cameras (1x1, 1x2, 2x1, 2x2, 2x3 or 3x2) in the main window
 - Start all cameras together or in groups, by button or at a given time
 - Name videos from an experiment Excel file (round, camera, animals)
 - Save and reload "Recording settings" and "Experiment settings"
@@ -49,9 +49,52 @@ def _send_output_to_log_file() -> Path:
     return log_path
 
 
+class _Tee:
+    """Writes to the console and to a log file at the same time."""
+
+    def __init__(self, console, log_file):
+        self.console = console
+        self.log_file = log_file
+
+    def write(self, text):
+        for stream in (self.console, self.log_file):
+            try:
+                if stream is not None:
+                    stream.write(text)
+            except Exception:
+                pass  # A broken stream must never stop the program
+        return len(text)
+
+    def flush(self):
+        for stream in (self.console, self.log_file):
+            try:
+                if stream is not None:
+                    stream.flush()
+            except Exception:
+                pass
+
+
+def _copy_output_to_log_file() -> Path:
+    """
+    From the source code: keep the output in the console window AND save it in a
+    log file, so that it can be sent to the developers after the window is closed.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"{datetime.now():%Y%m%d_%H%M%S}.log"
+    log_file = open(log_path, 'a', encoding='utf-8', buffering=1)   # Line-buffered: nothing lost on a crash
+    sys.stdout = _Tee(sys.stdout, log_file)
+    sys.stderr = _Tee(sys.stderr, log_file)
+    return log_path
+
+
 def main():
     """Start the main window and keep it running until it is closed."""
     log_path = _send_output_to_log_file() if IS_PACKAGED_PROGRAM else None
+    if log_path is None:
+        try:
+            print(f"This output is also saved in: {_copy_output_to_log_file()}")
+        except OSError as e:
+            print(f"(The output could not be saved in a log file: {e})")
 
     print("=" * 60)
     print(f"{APP_NAME} {APP_VERSION}")

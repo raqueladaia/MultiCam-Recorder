@@ -40,6 +40,7 @@ class ParameterWindow:
         write_values: Callable[[Dict[str, object]], Tuple[Dict[str, object], Optional[float], List[str]]],
         on_applied: Callable[[List[str]], None],
         on_discarded: Callable[[], None],
+        units: Optional[Dict[str, str]] = None,
     ):
         """
         Args:
@@ -53,6 +54,8 @@ class ParameterWindow:
                           (settings read back from the camera, resulting frame rate, list of errors)
             on_applied: called with the write errors when the user confirms the values with Apply
             on_discarded: called when unapplied values were replaced by the last applied ones
+            units: units that differ from the usual ones, e.g. {'Gain': 'raw'} for cameras
+                   without a gain in dB (BaslerCamera.units())
         """
         self.applied = dict(settings)      # All settings currently on the camera (read back)
         self.confirmed = dict(settings)    # Settings at the last Apply (or at opening)
@@ -65,6 +68,7 @@ class ParameterWindow:
         self.write_values = write_values
         self.on_applied = on_applied
         self.on_discarded = on_discarded
+        self.units = units or {}
         self.specs = [s for s in PARAMETER_SPECS if s.name in limits and settings.get(s.name) is not None]
         self.values = {s.name: settings[s.name] for s in self.specs}   # Values shown in the window
         self.sent = dict(self.values)      # Values last sent to the camera
@@ -91,13 +95,19 @@ class ParameterWindow:
                 f"Binning mode: {self.applied.get('BinningHorizontalMode')}   |   "
                 f"Sensor: {self.applied.get('SensorWidth')} x {self.applied.get('SensorHeight')} px   |   "
                 f"Changes are shown live in the preview")
-        ttk.Label(main, text=info, foreground='gray').grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
+        missing = [s.label for s in PARAMETER_SPECS if s not in self.specs]
+        if missing:
+            info += ("\nNot available on this camera: "
+                     + ", ".join(missing))
+        ttk.Label(main, text=info, foreground='gray', wraplength=680, justify=tk.LEFT).grid(
+            row=1, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
 
         self.scales = {}
         self.entries = {}
         self.range_labels = {}
         for row, spec in enumerate(self.specs, start=2):
-            unit = f" ({spec.unit})" if spec.unit else ""
+            unit_name = self.units.get(spec.name, spec.unit)
+            unit = f" ({unit_name})" if unit_name else ""
             ttk.Label(main, text=spec.label + unit).grid(row=row, column=0, sticky=tk.W, pady=2)
             minimum, maximum, increment = self.limits[spec.name]
             resolution = (max(increment, 1) if spec.is_integer else (increment if increment > 0 else 0.01))
@@ -244,11 +254,17 @@ class ParameterWindow:
 
     def _update_warnings(self):
         new = self._new_settings()
-        period_us = 1e6 / float(new['AcquisitionFrameRate'])
-        self.summary_label.config(
-            text=(f"Time between frames: {period_us:.0f} us   |   "
-                  f"Data rate of this camera: {data_rate_bytes_per_s(new) / 1e6:.1f} MB/s   |   "
-                  f"Image: {new['Width']} x {new['Height']} px"))
+        # Each part is shown only if the camera reports the values it needs.
+        parts = []
+        fps = float(new.get('AcquisitionFrameRate') or 0)
+        if fps > 0:
+            parts.append(f"Time between frames: {1e6 / fps:.0f} us")
+        rate = data_rate_bytes_per_s(new)
+        if rate > 0:
+            parts.append(f"Data rate of this camera: {rate / 1e6:.1f} MB/s")
+        if new.get('Width') is not None and new.get('Height') is not None:
+            parts.append(f"Image: {new['Width']} x {new['Height']} px")
+        self.summary_label.config(text="   |   ".join(parts))
         quality, drops = assess_changes(self.confirmed, new, self.other_basler_rate, self.cameras_receiving)
         self.quality_label.config(text="\n".join("- " + w for w in quality) or "No change to image quality.")
         self.drop_label.config(text="\n".join("- " + w for w in drops) or "No increased risk of dropped frames.")
@@ -332,7 +348,7 @@ class ParameterWindow:
 
         if self.write_errors:
             messagebox.showerror("Some values were not applied", "\n".join(self.write_errors), parent=self.window)
-        requested = float(self.applied['AcquisitionFrameRate'])
+        requested = float(self.applied.get('AcquisitionFrameRate') or 0)
         if self.resulting_fps is not None and self.resulting_fps < requested * 0.995:
             messagebox.showwarning(
                 "Frame rate NOT reached",

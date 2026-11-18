@@ -52,9 +52,16 @@ _BYTES_PER_PIXEL = {'Mono8': 1.0, 'Mono12': 2.0, 'Mono12p': 1.5}
 
 
 def data_rate_bytes_per_s(settings: Dict[str, object]) -> float:
-    """Data the camera sends per second: width x height x bytes per pixel x fps."""
+    """
+    Data the camera sends per second: width x height x bytes per pixel x fps.
+    0.0 when the camera does not report one of these values.
+    """
     bytes_per_pixel = _BYTES_PER_PIXEL.get(settings.get('PixelFormat'), 1.0)
-    return float(settings['Width']) * float(settings['Height']) * bytes_per_pixel * float(settings['AcquisitionFrameRate'])
+    try:
+        return (float(settings['Width']) * float(settings['Height']) * bytes_per_pixel
+                * float(settings['AcquisitionFrameRate']))
+    except (KeyError, TypeError, ValueError):
+        return 0.0
 
 
 def _mb(rate_bytes_per_s: float) -> str:
@@ -92,18 +99,20 @@ def assess_changes(
         return changed(name) and float(new[name]) > float(old[name])
 
     # ---------------- Frame-drop risk ----------------
-    fps = float(new['AcquisitionFrameRate'])
-    frame_period_us = 1e6 / fps
-    if float(new['ExposureTime']) > frame_period_us:
+    # (Each check is skipped when the camera does not report the values it needs.)
+    fps = float(new.get('AcquisitionFrameRate') or 0)
+    exposure = new.get('ExposureTime')
+    if fps > 0 and exposure is not None and float(exposure) > 1e6 / fps:
+        frame_period_us = 1e6 / fps
         drops.append(
-            f"Exposure time ({float(new['ExposureTime']):.0f} us) is longer than the time between frames "
+            f"Exposure time ({float(exposure):.0f} us) is longer than the time between frames "
             f"at {fps:.2f} fps ({frame_period_us:.0f} us). The camera CANNOT reach {fps:.2f} fps "
             f"and will acquire fewer frames per second."
         )
 
     old_rate = data_rate_bytes_per_s(old)
     new_rate = data_rate_bytes_per_s(new)
-    if new_rate > old_rate:
+    if old_rate > 0 and new_rate > old_rate:
         text = (f"Data rate of this camera increases from {_mb(old_rate)} to {_mb(new_rate)} "
                 f"(width x height x fps). More data per second makes dropped frames more likely "
                 f"(USB bandwidth, CPU for video compression, disk writing).")
@@ -113,7 +122,7 @@ def assess_changes(
         drops.append(text)
 
     link_limit = old.get('DeviceLinkThroughputLimit')
-    if old.get('DeviceLinkThroughputLimitMode') == 'On' and link_limit and new_rate > float(link_limit):
+    if old.get('DeviceLinkThroughputLimitMode') == 'On' and link_limit and new_rate > float(link_limit) > 0:
         drops.append(
             f"{_mb(new_rate)} exceeds the USB throughput limit set in the camera ({_mb(float(link_limit))}). "
             f"The camera will lower its frame rate."

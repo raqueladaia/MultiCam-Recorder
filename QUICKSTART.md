@@ -24,7 +24,7 @@ To quit, close the program window (it stops running recordings properly and save
    `Load .pfs...` in the row of a camera to give it its own file (e.g. `LUPE CAMERA SETTINGS.pfs`).
    Optional: `Parameters...` to change Basler settings. Changes are shown live in the preview;
    read the orange/red warnings, then `Apply` to keep them.
-3. **Preview**: `Start preview`, choose the layout (1x1, 1x2, 2x2, 2x3, 3x2) and which camera goes where.
+3. **Preview**: `Start preview`, choose the layout (1x1, 1x2, 2x1, 2x2, 2x3, 3x2) and which camera goes where.
 4. **Experiment settings tab (optional, can be skipped)**: `Import Excel...`
    (columns `recording_round_number`, `camera`, `animals`) or `Load experiment settings...`.
 5. **Recording tab**: output folder, duration (choose minutes or hours), recording round,

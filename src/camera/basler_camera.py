@@ -5,17 +5,26 @@ Detects, opens, configures and grabs frames from Basler cameras through
 pypylon (the official Python wrapper of the Basler pylon SDK).
 
 Key features:
-- List every connected Basler camera (serial number, model, nickname stored in the camera)
+- List every connected Basler camera (serial number, model, interface, nickname stored in the camera)
 - Open one specific camera by serial number
 - Load a .pfs configuration file into the camera
 - Read the editable parameters, their limits, and apply new values in a safe order
 - Grab frames for preview (latest frame only) or recording (every frame, with drop detection)
+
+Parameter names differ between Basler camera generations:
+- newer cameras (ace USB 3.0, ace 2, dart, boost...) use e.g. 'ExposureTime', 'Gain' (dB)
+- older cameras (ace GigE "classic", Scout, Pilot, runner...) use e.g. 'ExposureTimeAbs',
+  'GainRaw' (camera units, not dB)
+The rest of the program always uses the newer names; this module finds, for each
+camera, which name it really has (see PARAMETER_ALIASES). A parameter the camera
+does not have at all is reported as None and skipped.
 """
 
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from pypylon import pylon
+from pypylon import genicam, pylon
 
 
 # Parameters the user can change from the parameter window, in pylon node names.
@@ -56,6 +65,58 @@ INFO_PARAMETERS = [
 # buffers instead of being dropped. 300 buffers = 5 s at 60 fps.
 RECORDING_BUFFER_COUNT = 300
 
+# Name used in this program -> names a camera may use for it, in order of preference.
+# Names not listed here are the same on every camera.
+PARAMETER_ALIASES = {
+    'ExposureTime': ('ExposureTime', 'ExposureTimeAbs'),
+    'Gain': ('Gain', 'GainAbs', 'GainRaw'),
+    'AcquisitionFrameRate': ('AcquisitionFrameRate', 'AcquisitionFrameRateAbs'),
+    'ResultingFrameRate': ('ResultingFrameRate', 'ResultingFrameRateAbs'),
+    'BlackLevel': ('BlackLevel', 'BlackLevelAbs', 'BlackLevelRaw'),
+}
+
+# Camera parameter names whose values are NOT in the unit the program normally shows.
+RAW_UNIT_NAMES = {'GainRaw': 'raw', 'BlackLevelRaw': 'raw'}
+
+# pylon device class -> camera interface shown to the user.
+INTERFACE_NAMES = {'BaslerUsb': 'USB3', 'BaslerGigE': 'GigE', 'BaslerCamEmu': 'emulator'}
+
+
+class PfsMismatchError(ValueError):
+    """A .pfs file was made for another type of Basler camera (e.g. USB3 file, GigE camera)."""
+
+
+def interface_name(device_class: str) -> str:
+    """'USB3', 'GigE', 'emulator', or the pylon device class itself if unknown."""
+    return INTERFACE_NAMES.get(device_class, device_class or "unknown")
+
+
+def pfs_interface(pfs_path: str) -> Tuple[str, str]:
+    """
+    Read the header of a .pfs file.
+
+    Returns:
+        (camera description written by pylon, e.g. 'Basler::UsbCameraParams',
+         interface 'USB3' / 'GigE' / 'emulator', or '' if it cannot be recognised)
+    """
+    try:
+        with open(pfs_path, 'r', encoding='utf-8', errors='replace') as f:
+            for _ in range(5):
+                line = f.readline()
+                if line.startswith('# Device = '):
+                    device = line[len('# Device = '):].split(' -- ')[0].strip()
+                    lower = device.lower()
+                    if 'usb' in lower:
+                        return device, 'USB3'
+                    if 'gige' in lower:
+                        return device, 'GigE'
+                    if 'camemu' in lower:
+                        return device, 'emulator'
+                    return device, ''
+    except OSError:
+        pass
+    return '', ''
+
 
 def list_basler_cameras() -> List[Dict[str, object]]:
     """
@@ -65,6 +126,7 @@ def list_basler_cameras() -> List[Dict[str, object]]:
         One dictionary per camera with:
         - 'serial': serial number (string)
         - 'model': model name (e.g. 'acA2040-120um')
+        - 'interface': 'USB3', 'GigE', ... (see interface_name())
         - 'user_defined_name': nickname stored inside the camera (may be empty)
         - 'accessible': False when another program already has the camera open
     """
@@ -74,6 +136,7 @@ def list_basler_cameras() -> List[Dict[str, object]]:
         cameras.append({
             'serial': device.GetSerialNumber(),
             'model': device.GetModelName(),
+            'interface': interface_name(device.GetDeviceClass()),
             'user_defined_name': device.GetUserDefinedName().strip(),
             'accessible': factory.IsDeviceAccessible(device),
         })
@@ -131,6 +194,63 @@ class BaslerCamera:
     def model_name(self) -> str:
         return self.camera.GetDeviceInfo().GetModelName() if self.camera else ""
 
+    @property
+    def interface(self) -> str:
+        """'USB3', 'GigE', ... (see interface_name())."""
+        return interface_name(self.camera.GetDeviceInfo().GetDeviceClass()) if self.camera else ""
+
+    # ------------------------------------------------------------------
+    # Parameter names (they differ between camera generations)
+    # ------------------------------------------------------------------
+    def _find(self, name: str):
+        """
+        Find a parameter on this camera.
+
+        Args:
+            name: name used in this program (e.g. 'ExposureTime')
+
+        Returns:
+            (name on this camera, parameter node), or (None, None) if the camera
+            does not have this parameter (or it is not available right now).
+            When the camera has several of the names, the first one that can be
+            changed is used (e.g. 'GainRaw' if 'GainAbs' exists but is read-only),
+            otherwise the first one that can be read.
+        """
+        readable = None
+        for camera_name in PARAMETER_ALIASES.get(name, (name,)):
+            try:
+                node = getattr(self.camera, camera_name)
+                if node is None or not genicam.IsAvailable(node) or not genicam.IsReadable(node):
+                    continue
+                if genicam.IsWritable(node):
+                    return camera_name, node
+                if readable is None:
+                    readable = (camera_name, node)
+            except Exception:
+                continue  # This camera has no parameter with this name
+        return readable if readable is not None else (None, None)
+
+    def parameter_names(self) -> Dict[str, str]:
+        """{name used in this program: name on this camera}, for the parameters the camera has."""
+        names = {}
+        for name in EDITABLE_PARAMETERS + INFO_PARAMETERS + ['ResultingFrameRate']:
+            camera_name, _ = self._find(name)
+            if camera_name is not None:
+                names[name] = camera_name
+        return names
+
+    def units(self) -> Dict[str, str]:
+        """
+        Units that differ from the usual ones, e.g. {'Gain': 'raw'} when the camera
+        only has 'GainRaw' (camera units) instead of a gain in dB.
+        """
+        units = {}
+        for name in PARAMETER_ALIASES:
+            camera_name, _ = self._find(name)
+            if camera_name in RAW_UNIT_NAMES:
+                units[name] = RAW_UNIT_NAMES[camera_name]
+        return units
+
     # ------------------------------------------------------------------
     # Configuration
     # ------------------------------------------------------------------
@@ -138,55 +258,75 @@ class BaslerCamera:
         """
         Load a .pfs configuration file (saved from pylon Viewer) into the camera.
 
-        Raises an exception if the file does not match this camera.
+        Raises:
+            PfsMismatchError: the file was made for another type of camera (USB3 vs GigE...);
+                        nothing is loaded in that case.
+            Exception from pylon: a value in the file does not match this camera.
         """
+        file_device, file_interface = pfs_interface(pfs_path)
+        camera_interface = self.interface
+        if file_interface and camera_interface in INTERFACE_NAMES.values() and file_interface != camera_interface:
+            raise PfsMismatchError(
+                f"{Path(pfs_path).name} was made for a {file_interface} Basler camera ({file_device}), "
+                f"but this camera ({self.model_name}) is connected through {camera_interface}. "
+                f"Nothing was loaded.")
         # The last argument (True) makes pylon validate every value it writes.
         pylon.FeaturePersistence.Load(pfs_path, self.camera.GetNodeMap(), True)
 
     def get_settings(self) -> Dict[str, object]:
-        """Return the current value of every editable and informative parameter."""
+        """
+        Return the current value of every editable and informative parameter
+        (None for parameters this camera does not have).
+        """
         settings = {}
         for name in EDITABLE_PARAMETERS + INFO_PARAMETERS:
+            _, node = self._find(name)
             try:
-                settings[name] = getattr(self.camera, name).GetValue()
+                settings[name] = node.GetValue() if node is not None else None
             except Exception:
-                # Parameter not available on this camera model.
                 settings[name] = None
         return settings
 
     def get_limits(self) -> Dict[str, Tuple[float, float, float]]:
         """
-        Return (minimum, maximum, increment) for every editable parameter,
-        as reported by the camera right now.
+        Return (minimum, maximum, increment) for every editable parameter that
+        this camera has, as reported by the camera right now.
 
         Note: the limits of Width/Height/Offsets depend on binning and on each
         other; the parameter window recomputes them from the sensor size.
+        (Binning and image size are read-only while the camera is grabbing, but they
+        are still listed: apply_settings() is called with the grabbing stopped for them.)
         """
         limits = {}
         for name in EDITABLE_PARAMETERS:
+            _, node = self._find(name)
+            if node is None:
+                continue  # Parameter not available on this camera model
             try:
-                node = getattr(self.camera, name)
                 try:
                     increment = node.Inc
                 except Exception:
                     increment = 0  # Float parameters without a fixed step
                 limits[name] = (node.Min, node.Max, increment)
             except Exception:
-                pass  # Parameter not available on this camera model
+                pass
         return limits
 
     def resulting_frame_rate(self) -> Optional[float]:
         """
-        Frame rate the camera will really deliver with the current settings.
+        Frame rate the camera will really deliver with the current settings,
+        or None if the camera does not report it.
 
         The camera computes it from exposure time, sensor readout time and USB
         bandwidth limit. It is lower than the requested frame rate when the
         settings do not allow the requested rate.
         """
+        _, node = self._find('ResultingFrameRate')
         try:
-            return float(self.camera.ResultingFrameRate.GetValue())
+            fps = float(node.GetValue()) if node is not None else None
         except Exception:
             return None
+        return fps if fps and fps > 0 else None
 
     def _changed(self, settings: Dict[str, object]) -> Dict[str, object]:
         """The values of 'settings' that differ from the values currently on the camera."""
@@ -221,7 +361,9 @@ class BaslerCamera:
 
         def write(name, value):
             try:
-                node = getattr(self.camera, name)
+                _, node = self._find(name)
+                if node is None:
+                    raise RuntimeError("this camera does not have this parameter")
                 # Integer parameters must be a multiple of their increment (rounded down).
                 if isinstance(node.GetValue(), int):
                     increment = max(int(node.Inc), 1)
@@ -236,8 +378,11 @@ class BaslerCamera:
             # larger width/height is always allowed.
             geometry = {name: settings.get(name, current.get(name)) for name in GEOMETRY_PARAMETERS}
             for name in ('OffsetX', 'OffsetY'):
+                _, node = self._find(name)
+                if node is None:
+                    continue  # No offsets on this camera
                 try:
-                    getattr(self.camera, name).SetValue(0)
+                    node.SetValue(0)
                 except Exception as e:
                     errors.append(f"{name} reset: {e}")
             for name in GEOMETRY_PARAMETERS:
@@ -245,12 +390,24 @@ class BaslerCamera:
                     write(name, geometry[name])
 
         # The frame rate is only respected if the frame rate limit is enabled.
-        if settings.get('AcquisitionFrameRate') is not None and not current.get('AcquisitionFrameRateEnable'):
-            try:
-                self.camera.AcquisitionFrameRateEnable.SetValue(True)
-                changed['AcquisitionFrameRate'] = settings['AcquisitionFrameRate']
-            except Exception as e:
-                errors.append(f"AcquisitionFrameRateEnable: {e}")
+        if (settings.get('AcquisitionFrameRate') is not None and current.get('AcquisitionFrameRate') is not None
+                and not current.get('AcquisitionFrameRateEnable')):
+            _, enable_node = self._find('AcquisitionFrameRateEnable')
+            if enable_node is not None:
+                try:
+                    enable_node.SetValue(True)
+                    changed['AcquisitionFrameRate'] = settings['AcquisitionFrameRate']
+                except Exception as e:
+                    errors.append(f"AcquisitionFrameRateEnable: {e}")
+        # Older cameras only apply the gamma value when gamma correction is switched on.
+        if 'Gamma' in changed:
+            _, gamma_enable = self._find('GammaEnable')
+            if gamma_enable is not None:
+                try:
+                    if not gamma_enable.GetValue():
+                        gamma_enable.SetValue(True)
+                except Exception as e:
+                    errors.append(f"GammaEnable: {e}")
         for name in ('AcquisitionFrameRate', 'ExposureTime', 'Gain', 'Gamma', 'BlackLevel'):
             if name in changed:
                 write(name, changed[name])

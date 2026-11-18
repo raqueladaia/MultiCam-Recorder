@@ -15,7 +15,7 @@ Left side (tabs):
 - Buttons to save / load the "Recording settings".
 - Status log.
 
-Right side: live preview of all accepted cameras (1x1, 1x2, 2x2, 2x3 or 3x2).
+Right side: live preview of all accepted cameras (1x1, 1x2, 2x1, 2x2, 2x3 or 3x2).
 
 Threads: each camera has a CameraWorker thread (preview or recording). This
 window only reads the newest frames and handles the workers' messages in
@@ -24,6 +24,7 @@ _tick(), which runs every PREVIEW_REFRESH_MS milliseconds.
 
 import queue
 import tkinter as tk
+import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -32,15 +33,15 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Dict, List, Optional, Tuple
 
 from ..app_info import APP_DESCRIPTION, APP_NAME, APP_VERSION
-from ..camera.basler_camera import EDITABLE_PARAMETERS, BaslerCamera
+from ..camera.basler_camera import EDITABLE_PARAMETERS, BaslerCamera, PfsMismatchError
 from ..camera.camera_discovery import (MAX_ACCEPTED_CAMERAS, CameraEntry, detect_all_cameras,
                                        save_nickname, validate_nickname)
-from ..camera.parameters import data_rate_bytes_per_s
+from ..camera.parameters import PARAMETER_SPECS, data_rate_bytes_per_s
 from ..camera.usb_camera import UsbCamera
 from ..recording.camera_worker import CameraWorker, RecordingJob
 from ..settings.experiment_settings import ExperimentSettings, import_experiment_excel, video_name_stem
 from ..settings.recording_settings import RecordingSettings
-from ..utils.app_paths import SAVED_SETTINGS_DIR
+from ..utils.app_paths import LOG_DIR, SAVED_SETTINGS_DIR
 from ..utils.helpers import (format_duration, generate_output_paths, validate_config_file,
                              validate_output_directory)
 from .parameter_window import ParameterWindow
@@ -52,6 +53,11 @@ PREVIEW_REFRESH_MS = 66   # Preview display update interval (~15 images per seco
 TYPE_COLORS = {"Basler": "#1f5fa8", "USB": "#c86400"}
 # Units the recording duration can be entered in -> seconds per unit.
 DURATION_UNITS = {"minutes": 60, "hours": 3600}
+# Shown when a .pfs file cannot be loaded.
+PFS_HELP = ("To make a .pfs file for this camera: close MultiCam Recorder, open pylon Viewer, open the camera, "
+            "set it up, then Camera > Save Features... Then load that file here. "
+            "The example files in 'example_camera_config_file' were made for a Basler acA2040-120um "
+            "(USB 3.0) and may not work with other models.")
 
 
 @dataclass
@@ -95,6 +101,7 @@ class MainWindow:
         self.experiment: Optional[ExperimentSettings] = None
         self.preview_on = False
         self._in_tick = False
+        self._showing_error = False                        # An "Unexpected error" dialog is open
         self._camera_rows: Dict[str, Dict[str, object]] = {}
         self._group_combos: Dict[str, ttk.Combobox] = {}   # Camera key -> its group drop-down
         self._pfs_buttons: List[ttk.Button] = []           # "Load .pfs..." button of each Basler camera
@@ -107,6 +114,9 @@ class MainWindow:
         self.round_var = tk.StringVar()
 
         self._build_ui()
+        # Without this, Tk only prints errors of button callbacks to the console:
+        # the window would silently stay half-updated.
+        self.root.report_callback_exception = self._on_unexpected_error
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(200, self._detect_cameras)
         self.root.after(PREVIEW_REFRESH_MS, self._tick)
@@ -309,7 +319,8 @@ class MainWindow:
         for e in detected:
             # Accepted cameras are open in this program, so they are not accessible to the detection.
             note = "" if e.accessible or e.key in self.accepted else "  (in use by another program)"
-            self._log(f"  {e.label}  model {e.model}{note}")
+            interface = f", {e.interface}" if e.interface else ""
+            self._log(f"  {e.label}  model {e.model}{interface}{note}")
         self._rebuild_camera_table()
         self._on_cameras_changed()
 
@@ -374,10 +385,46 @@ class MainWindow:
         s = acc.camera.get_settings()
         fps = acc.camera.resulting_frame_rate()
         fps_text = f"{fps:.2f} fps" if fps else "fps unknown"
+        size = f"{s.get('Width') or '?'}x{s.get('Height') or '?'}"
         if acc.entry.kind == "USB":
-            return f"{s['Width']}x{s['Height']} @ {fps_text} (driver)"
-        return (f"{s['Width']}x{s['Height']} @ {fps_text}, exp {s['ExposureTime']:.0f} us, "
-                f"gain {s['Gain']:.1f} dB")
+            return f"{size} @ {fps_text} (driver)"
+        # A camera may not have every parameter: show '?' instead of failing.
+        text = f"{size} @ {fps_text}"
+        exposure, gain = s.get('ExposureTime'), s.get('Gain')
+        text += f", exp {exposure:.0f} us" if isinstance(exposure, (int, float)) else ", exp ?"
+        if isinstance(gain, (int, float)):
+            unit = acc.camera.units().get('Gain', 'dB')
+            text += f", gain {gain:.1f} dB" if unit == 'dB' else f", gain {gain:g} ({unit})"
+        else:
+            text += ", gain ?"
+        return text
+
+    def _shareable(self, values: Dict[str, object], source: AcceptedCamera,
+                   target: AcceptedCamera) -> Tuple[Dict[str, object], List[str]]:
+        """
+        Values of the source camera that can be copied to the target camera.
+        A value is not copied when the two cameras use different units for it
+        (e.g. gain in dB on one camera and in raw camera units on the other).
+
+        Returns:
+            (values to write, warnings)
+        """
+        if source is target:
+            return dict(values), []
+        source_units, target_units = source.camera.units(), target.camera.units()
+        kept, warnings = {}, []
+        usual_units = {s.name: s.unit for s in PARAMETER_SPECS}
+        for name, value in values.items():
+            if value is None:
+                continue  # Not available on the source camera: nothing to copy
+            if source_units.get(name) != target_units.get(name):
+                source_unit = source_units.get(name, usual_units.get(name, '?'))
+                target_unit = target_units.get(name, usual_units.get(name, '?'))
+                warnings.append(f"{name} not copied from {source.entry.name}: the two cameras use different "
+                                f"units ({source_unit} / {target_unit}).")
+            else:
+                kept[name] = value
+        return kept, warnings
 
     def _on_use_toggled(self, entry: CameraEntry, use_var: tk.BooleanVar):
         if use_var.get():
@@ -420,15 +467,28 @@ class MainWindow:
         self._log(f"Accepted {entry.label}.")
         warnings = []
         if entry.kind == "Basler":
+            self._log(f"  Model {camera.model_name}, {camera.interface} interface.")
+            # Older Basler cameras use other parameter names (e.g. ExposureTimeAbs): log which ones.
+            names = camera.parameter_names()
+            other_names = [f"{name} -> {camera_name}" for name, camera_name in names.items() if name != camera_name]
+            if other_names:
+                self._log(f"  This camera uses older parameter names: {', '.join(other_names)}.")
+            missing = [s.label for s in PARAMETER_SPECS if s.name not in names]
+            if missing:
+                self._log(f"  Not available on this camera: {', '.join(missing)}.")
+            if 'ResultingFrameRate' not in names:
+                self._log("  The camera does not report its frame rate: it will be measured "
+                          "at the start of each recording.")
             self._log(f"  No .pfs file loaded into {entry.name} yet: it keeps its current settings "
                       f"(load one in the 'Basler parameters' box).")
             source = next((a for a in self.accepted.values()
                            if a.entry.kind == "Basler" and a is not acc), None)
             if copy_shared and self.shared_var.get() and source is not None:
                 settings = source.camera.get_settings()
-                errors = camera.apply_settings({k: settings[k] for k in EDITABLE_PARAMETERS})
+                values, not_copied = self._shareable({k: settings[k] for k in EDITABLE_PARAMETERS}, source, acc)
+                errors = camera.apply_settings(values)
                 self._log(f"  Shared parameters copied from {source.entry.name}.")
-                warnings += [f"{entry.name}: {e}" for e in errors]
+                warnings += [f"{entry.name}: {e}" for e in not_copied + errors]
         self._log_camera_settings(acc)
         if self.preview_on:
             acc.worker.start_preview()
@@ -521,7 +581,8 @@ class MainWindow:
             """Send the values to the camera(s) immediately (live preview of the changes)."""
             errors = []
             for target in targets:
-                errors += [f"{target.entry.name}: {e}" for e in self._write_parameters(target, new_values)]
+                values, not_copied = self._shareable(new_values, acc, target)
+                errors += [f"{target.entry.name}: {e}" for e in not_copied + self._write_parameters(target, values)]
             self._refresh_camera_rows()
             return acc.camera.get_settings(), acc.camera.resulting_frame_rate(), errors
 
@@ -539,7 +600,7 @@ class MainWindow:
 
         ParameterWindow(self.root, description, acc.camera.get_settings(), acc.camera.get_limits(),
                         acc.camera.resulting_frame_rate(), other_rate, len(targets),
-                        write_values, on_applied, on_discarded)
+                        write_values, on_applied, on_discarded, units=acc.camera.units())
 
     def _rebuild_pfs_table(self):
         """One row per accepted Basler camera: its .pfs file and a button to load another one."""
@@ -595,9 +656,21 @@ class MainWindow:
         with self._camera_paused(acc):
             try:
                 acc.camera.load_pfs(path)
+            except PfsMismatchError as e:
+                # The file is for another type of camera: nothing was loaded.
+                self._log(f"ERROR {acc.entry.label}: {Path(path).name} not loaded: {e}")
+                return (f"{Path(path).name} could not be loaded into {acc.entry.label}:\n{e}\n\n"
+                        f"{PFS_HELP}")
             except Exception as e:
                 self._log(f"ERROR {acc.entry.label}: {Path(path).name} not loaded: {e}")
-                return f"{Path(path).name} could not be loaded into {acc.entry.label}:\n{e}"
+                self._log_camera_settings(acc)
+                return (f"{Path(path).name} could not be loaded into {acc.entry.label} "
+                        f"(model {acc.camera.model_name}).\n\npylon says: {e}\n\n"
+                        f"Usually this means the file was made for another camera model, or one of its values "
+                        f"is outside the range of this camera. Some settings from the file may already have been "
+                        f"applied before the problem: check the camera's current settings (the green text in "
+                        f"its row of the camera table, or the 'Parameters...' button).\n\n"
+                        f"{PFS_HELP}")
         acc.pfs_file = path
         self._log(f"Loaded {path} into {acc.entry.label}.")
         self._log_camera_settings(acc)
@@ -622,8 +695,8 @@ class MainWindow:
         settings = source.camera.get_settings()
         errors = []
         for acc in others:
-            errors += [f"{acc.entry.name}: {e}" for e in
-                       self._write_parameters(acc, {k: settings[k] for k in EDITABLE_PARAMETERS})]
+            values, not_copied = self._shareable({k: settings[k] for k in EDITABLE_PARAMETERS}, source, acc)
+            errors += [f"{acc.entry.name}: {e}" for e in not_copied + self._write_parameters(acc, values)]
             self._log(f"Parameters of {source.entry.name} copied to {acc.entry.label}.")
             self._log_camera_settings(acc)
         if errors:
@@ -1249,6 +1322,30 @@ class MainWindow:
         self.log_text.insert(tk.END, f"{datetime.now():%H:%M:%S}  {message}\n", tag)
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
+
+    def _on_unexpected_error(self, exc_type, exc_value, exc_traceback):
+        """Called by Tk when a button or other callback raises an error: tell the user."""
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        try:
+            print(details)  # Full details in the console / log file
+        except Exception:
+            pass
+        if self._showing_error:
+            return  # Do not open a second dialog while the first one is still shown
+        self._showing_error = True
+        try:
+            try:
+                self._log(f"ERROR (unexpected): {exc_type.__name__}: {exc_value}")
+            except Exception:
+                pass
+            messagebox.showerror(
+                "Unexpected error",
+                f"Something went wrong:\n\n{exc_type.__name__}: {exc_value}\n\n"
+                "The window may not show the current state: close the program and start it again.\n\n"
+                f"Please send the developers the newest file in this folder:\n{LOG_DIR}\n\n"
+                "Technical details:\n" + details[-1500:])
+        finally:
+            self._showing_error = False
 
     def _alert(self, title: str, text: str):
         """Error dialog opened outside _tick, so that _tick keeps running while it is shown."""
