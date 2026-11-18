@@ -31,6 +31,9 @@ from ..utils.helpers import format_duration
 # these frames are kept and written too.
 USB_RATE_MEASUREMENT_S = 2.0
 
+# Older (GigE Vision 1.x) Basler cameras number their frames 1...65535 and then start again at 1.
+GIGE_BLOCK_ID_MAX = 65535
+
 
 class _VideoFile:
     """
@@ -194,6 +197,10 @@ class CameraWorker:
                 if block_id is not None:
                     if last_block_id is not None and block_id > last_block_id + 1:
                         frames_dropped += block_id - last_block_id - 1
+                    elif (last_block_id is not None and block_id < last_block_id
+                          and last_block_id > GIGE_BLOCK_ID_MAX - 1000 and block_id < 1000):
+                        # Older GigE cameras count 1...65535, then start again at 1.
+                        frames_dropped += (GIGE_BLOCK_ID_MAX - last_block_id) + (block_id - 1)
                     last_block_id = block_id
 
                 if frame is None:
@@ -284,6 +291,9 @@ class CameraWorker:
                 stopped_by_user=stopped_by_user,
                 error=error,
                 context=job.context,
+                camera_units=camera.units() if camera.kind == "Basler" else None,
+                camera_parameter_names=({name: camera_name for name, camera_name in camera.parameter_names().items()
+                                         if name != camera_name} if camera.kind == "Basler" else None),
             )
             try:
                 save_metadata(metadata, job.metadata_path)

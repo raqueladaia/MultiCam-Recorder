@@ -42,6 +42,8 @@ def build_metadata(
     stopped_by_user: bool,
     error: str,
     context: Dict[str, object],
+    camera_units: Optional[Dict[str, str]] = None,
+    camera_parameter_names: Optional[Dict[str, str]] = None,
 ) -> Dict[str, object]:
     """
     Collect everything known about one recording.
@@ -49,6 +51,9 @@ def build_metadata(
     Args:
         camera_entry: CameraEntry of the camera (type, ID, nickname)
         context: experiment information from the GUI (group, round, animals, start mode...)
+        camera_units: Basler only, units that differ from the usual ones (e.g. {'Gain': 'raw'})
+        camera_parameter_names: Basler only, {name in 'settings': name on the camera} for the
+                                parameters this camera names differently (older Basler cameras)
         Other arguments: values measured during the recording.
     """
     measured_fps = frames_written / measured_duration_s if measured_duration_s > 0 else 0.0
@@ -98,6 +103,10 @@ def build_metadata(
             "model": camera_model,
             "resulting_frame_rate_reported_by_camera": camera_resulting_fps,
             "settings": camera_settings,
+            # Units of 'settings': ExposureTime us, Gain dB, AcquisitionFrameRate fps, sizes px,
+            # except the ones listed here (e.g. Gain "raw" = camera units on older Basler cameras).
+            "settings_units_different_from_usual": camera_units or {},
+            "settings_names_different_on_camera": camera_parameter_names or {},
         },
         "experiment": context,
         "metadata_created": datetime.now().isoformat(timespec='seconds'),

@@ -5,7 +5,7 @@ The version is shown in the title bar of the program and saved in every metadata
 
 ## 1.0.2 - unreleased (test version 1.0.2-test1)
 
-- Older Basler cameras now work (e.g. ace GigE "classic", Scout, Pilot). These cameras use other
+- Support for older Basler cameras (e.g. ace GigE "classic", Scout, Pilot; being tested with users' cameras). These cameras use other
   parameter names (`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs`, `ResultingFrameRateAbs`...).
   Before, ticking **Use** failed silently for them: the camera row did not turn green and the
   Recording tab showed "No accepted camera.".
@@ -14,6 +14,8 @@ The version is shown in the title bar of the program and saved in every metadata
   is not copied between cameras that use different units for it.
 - Basler cameras that do not report their frame rate can record: the frame rate is measured at the
   start of the recording, as for USB cameras.
+- Metadata: the gain unit ("raw" on older cameras) and the camera's own parameter names are saved.
+- Running from the source code now also saves the output in the folder `logs` (as the ready-to-use program does).
 - Clearer messages: unexpected errors open an error dialog (instead of failing silently), the camera
   interface (USB3/GigE) and the parameter names used are written to the log, and a `.pfs` file made for
   another camera type is refused with an explanation.

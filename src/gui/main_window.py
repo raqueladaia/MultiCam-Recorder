@@ -36,12 +36,12 @@ from ..app_info import APP_DESCRIPTION, APP_NAME, APP_VERSION
 from ..camera.basler_camera import EDITABLE_PARAMETERS, BaslerCamera, PfsMismatchError
 from ..camera.camera_discovery import (MAX_ACCEPTED_CAMERAS, CameraEntry, detect_all_cameras,
                                        save_nickname, validate_nickname)
-from ..camera.parameters import data_rate_bytes_per_s
+from ..camera.parameters import PARAMETER_SPECS, data_rate_bytes_per_s
 from ..camera.usb_camera import UsbCamera
 from ..recording.camera_worker import CameraWorker, RecordingJob
 from ..settings.experiment_settings import ExperimentSettings, import_experiment_excel, video_name_stem
 from ..settings.recording_settings import RecordingSettings
-from ..utils.app_paths import SAVED_SETTINGS_DIR
+from ..utils.app_paths import LOG_DIR, SAVED_SETTINGS_DIR
 from ..utils.helpers import (format_duration, generate_output_paths, validate_config_file,
                              validate_output_directory)
 from .parameter_window import ParameterWindow
@@ -385,7 +385,7 @@ class MainWindow:
         s = acc.camera.get_settings()
         fps = acc.camera.resulting_frame_rate()
         fps_text = f"{fps:.2f} fps" if fps else "fps unknown"
-        size = f"{s.get('Width', '?')}x{s.get('Height', '?')}"
+        size = f"{s.get('Width') or '?'}x{s.get('Height') or '?'}"
         if acc.entry.kind == "USB":
             return f"{size} @ {fps_text} (driver)"
         # A camera may not have every parameter: show '?' instead of failing.
@@ -413,10 +413,15 @@ class MainWindow:
             return dict(values), []
         source_units, target_units = source.camera.units(), target.camera.units()
         kept, warnings = {}, []
+        usual_units = {s.name: s.unit for s in PARAMETER_SPECS}
         for name, value in values.items():
+            if value is None:
+                continue  # Not available on the source camera: nothing to copy
             if source_units.get(name) != target_units.get(name):
+                source_unit = source_units.get(name, usual_units.get(name, '?'))
+                target_unit = target_units.get(name, usual_units.get(name, '?'))
                 warnings.append(f"{name} not copied from {source.entry.name}: the two cameras use different "
-                                f"units ({source_units.get(name, 'usual unit')} / {target_units.get(name, 'usual unit')}).")
+                                f"units ({source_unit} / {target_unit}).")
             else:
                 kept[name] = value
         return kept, warnings
@@ -468,7 +473,7 @@ class MainWindow:
             other_names = [f"{name} -> {camera_name}" for name, camera_name in names.items() if name != camera_name]
             if other_names:
                 self._log(f"  This camera uses older parameter names: {', '.join(other_names)}.")
-            missing = [name for name in EDITABLE_PARAMETERS if name not in names]
+            missing = [s.label for s in PARAMETER_SPECS if s.name not in names]
             if missing:
                 self._log(f"  Not available on this camera: {', '.join(missing)}.")
             if 'ResultingFrameRate' not in names:
@@ -662,8 +667,9 @@ class MainWindow:
                 return (f"{Path(path).name} could not be loaded into {acc.entry.label} "
                         f"(model {acc.camera.model_name}).\n\npylon says: {e}\n\n"
                         f"Usually this means the file was made for another camera model, or one of its values "
-                        f"is outside the range of this camera. The values before the problem may have been "
-                        f"written: check the camera settings (row in the camera table, or Parameters...).\n\n"
+                        f"is outside the range of this camera. Some settings from the file may already have been "
+                        f"applied before the problem: check the camera's current settings (the green text in "
+                        f"its row of the camera table, or the 'Parameters...' button).\n\n"
                         f"{PFS_HELP}")
         acc.pfs_file = path
         self._log(f"Loaded {path} into {acc.entry.label}.")
@@ -1320,7 +1326,10 @@ class MainWindow:
     def _on_unexpected_error(self, exc_type, exc_value, exc_traceback):
         """Called by Tk when a button or other callback raises an error: tell the user."""
         details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-        print(details)  # Full details in the console / log file
+        try:
+            print(details)  # Full details in the console / log file
+        except Exception:
+            pass
         if self._showing_error:
             return  # Do not open a second dialog while the first one is still shown
         self._showing_error = True
@@ -1332,9 +1341,9 @@ class MainWindow:
             messagebox.showerror(
                 "Unexpected error",
                 f"Something went wrong:\n\n{exc_type.__name__}: {exc_value}\n\n"
-                "The window may not show the current state. Please send the log file "
-                "(folder 'logs') or a copy of the console text to the developers.\n\n"
-                + details[-1500:])
+                "The window may not show the current state: close the program and start it again.\n\n"
+                f"Please send the developers the newest file in this folder:\n{LOG_DIR}\n\n"
+                "Technical details:\n" + details[-1500:])
         finally:
             self._showing_error = False
 

@@ -212,15 +212,23 @@ class BaslerCamera:
         Returns:
             (name on this camera, parameter node), or (None, None) if the camera
             does not have this parameter (or it is not available right now).
+            When the camera has several of the names, the first one that can be
+            changed is used (e.g. 'GainRaw' if 'GainAbs' exists but is read-only),
+            otherwise the first one that can be read.
         """
+        readable = None
         for camera_name in PARAMETER_ALIASES.get(name, (name,)):
             try:
                 node = getattr(self.camera, camera_name)
-                if node is not None and genicam.IsAvailable(node) and genicam.IsReadable(node):
+                if node is None or not genicam.IsAvailable(node) or not genicam.IsReadable(node):
+                    continue
+                if genicam.IsWritable(node):
                     return camera_name, node
+                if readable is None:
+                    readable = (camera_name, node)
             except Exception:
                 continue  # This camera has no parameter with this name
-        return None, None
+        return readable if readable is not None else (None, None)
 
     def parameter_names(self) -> Dict[str, str]:
         """{name used in this program: name on this camera}, for the parameters the camera has."""
@@ -391,6 +399,15 @@ class BaslerCamera:
                     changed['AcquisitionFrameRate'] = settings['AcquisitionFrameRate']
                 except Exception as e:
                     errors.append(f"AcquisitionFrameRateEnable: {e}")
+        # Older cameras only apply the gamma value when gamma correction is switched on.
+        if 'Gamma' in changed:
+            _, gamma_enable = self._find('GammaEnable')
+            if gamma_enable is not None:
+                try:
+                    if not gamma_enable.GetValue():
+                        gamma_enable.SetValue(True)
+                except Exception as e:
+                    errors.append(f"GammaEnable: {e}")
         for name in ('AcquisitionFrameRate', 'ExposureTime', 'Gain', 'Gamma', 'BlackLevel'):
             if name in changed:
                 write(name, changed[name])

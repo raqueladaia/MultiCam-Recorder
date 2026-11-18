@@ -248,7 +248,7 @@ In the folder of the program (next to `MultiCamRecorder.exe`, or next to `main.p
 |---|---|
 | `config` | Camera nicknames of this computer (`camera_nicknames.json`) |
 | `saved_settings` | Default place for saved recording and experiment settings |
-| `logs` | Ready-to-use program only: one text file per session with everything the program reported. Useful when reporting a problem. |
+| `logs` | One text file per session with everything the program reported (from the source code, the same text is also shown in the black window). Useful when reporting a problem. |
 
 If the program folder cannot be written (e.g. the program was put in `C:\Program Files`), these
 folders are in `%LOCALAPPDATA%\MultiCam Recorder` instead (type this in the File Explorer address bar).
@@ -488,7 +488,8 @@ Do it in the folder that contains `start_app.bat`.
 ### A Basler camera is listed, but ticking "Use" does not accept it / "No accepted camera."
 
 Versions 1.0.0 and 1.0.1 only worked with newer Basler cameras (e.g. ace USB 3.0). Older models
-(e.g. ace GigE "classic", Scout, Pilot) use other parameter names. Update to the newest version. If the
+(e.g. ace GigE "classic", Scout, Pilot) use other parameter names, which newer versions support.
+Update to the newest version. If the
 problem remains, report it with the camera model and the log file (see
 [The application closes with an error](#the-application-closes-with-an-error)).
 
@@ -528,8 +529,7 @@ recording, that video cannot be opened.
 
 ### The application closes with an error
 
-Read the last lines of the Status log, and of the newest file in the folder `logs` (ready-to-use
-program) or of the black window (source code). Close the application, unplug and reconnect the
+Read the last lines of the Status log, and of the newest file in the folder `logs`. Close the application, unplug and reconnect the
 cameras, and start it again. If the problem persists, report it with: the exact error message, the
 log file, what you were doing, the program version (shown in the window title), Windows version,
 camera model(s), and a screenshot.
