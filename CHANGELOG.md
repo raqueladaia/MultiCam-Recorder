@@ -3,9 +3,9 @@
 All notable changes of MultiCam Recorder, newest version first.
 The version is shown in the title bar of the program and saved in every metadata file.
 
-## 1.0.2 - unreleased (test version 1.0.2-test1)
+## 1.0.2 - 2026-11-18
 
-- Support for older Basler cameras (e.g. ace GigE "classic", Scout, Pilot; being tested with users' cameras). These cameras use other
+- Support for older Basler cameras (e.g. ace GigE "classic", Scout, Pilot). These cameras use other
   parameter names (`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs`, `ResultingFrameRateAbs`...).
   Before, ticking **Use** failed silently for them: the camera row did not turn green and the
   Recording tab showed "No accepted camera.".

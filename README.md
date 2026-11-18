@@ -488,7 +488,7 @@ Do it in the folder that contains `start_app.bat`.
 ### A Basler camera is listed, but ticking "Use" does not accept it / "No accepted camera."
 
 Versions 1.0.0 and 1.0.1 only worked with newer Basler cameras (e.g. ace USB 3.0). Older models
-(e.g. ace GigE "classic", Scout, Pilot) use other parameter names, which newer versions support.
+(e.g. ace GigE "classic", Scout, Pilot) use other parameter names, supported since version 1.0.2.
 Update to the newest version. If the
 problem remains, report it with the camera model and the log file (see
 [The application closes with an error](#the-application-closes-with-an-error)).
