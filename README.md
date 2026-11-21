@@ -691,6 +691,10 @@ paper that introduced LUPE:
 > Oswell, C. S., Rogers, S. A., James, J. G. et al. Mimicking opioid analgesia in cortical pain
 > circuits. *Nature* (2026). https://doi.org/10.1038/s41586-025-09908-w
 
+## Author
+
+Developed by [Raquel Adaia Sandoval Ortega, PhD](https://sandovalortega.com/), neuroscientist at the University of Pennsylvania. Read more about MultiCam Recorder and related research software at [sandovalortega.com/multicam-recorder/](https://sandovalortega.com/multicam-recorder/).
+
 ---
 
 ## License
